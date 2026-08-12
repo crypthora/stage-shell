@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { VoiceService } = require('./voice-service.cjs');
 const { ShellService } = require('./shell-service.cjs');
+const { migrateUserData } = require('./user-data-migration.cjs');
 
 const APP_NAME = 'stage-shell';
 const APP_ID = 'com.crypthora.stage-shell';
@@ -23,6 +24,7 @@ const NATIVE_CORE_URL = 'http://127.0.0.1:7803';
 app.setName(APP_NAME);
 app.setAppUserModelId(APP_ID);
 app.setPath('userData', path.join(app.getPath('appData'), APP_NAME));
+migrateUserData(app.getPath('userData'));
 let shellService;
 let sidebar;
 let settingsWindow;
@@ -113,7 +115,6 @@ async function startVoiceCore() {
     skipTaskbar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   });
-  voiceCapture.webContents.setAudioMuted(true);
   voiceCapture.webContents.on('console-message', (_event, level, message, line, sourceId) => {
     console.error(`Voice capture console [${level}] ${sourceId}:${line} ${message}`);
   });
@@ -385,7 +386,11 @@ const windowsApi = {
     try {
       const value = await windowsCommand('list');
       const rows = Array.isArray(value) ? value : value ? [value] : [];
-      return rows.slice(0, 20).map((row) => ({ hwnd: Number(row.hwnd), title: String(row.title || row.process || '窗口'), thumb: null, icon: null, group: false, groupCount: 0, visible: true }));
+      return rows.slice(0, 20).map((row) => ({
+        hwnd: Number(row.hwnd), title: String(row.title || row.process || '窗口'), thumb: null,
+        icon: row.icon ? `data:image/png;base64,${row.icon}` : null,
+        group: false, groupCount: 0, visible: true,
+      }));
     } catch (error) { console.error('Native window list failed:', error); return []; }
   },
   focus: async (hwnd) => windowsCommand('focus', hwnd),

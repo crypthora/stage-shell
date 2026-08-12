@@ -136,10 +136,19 @@ class VoiceService {
       this.resetCapture('超过 2.5 秒未收到新的音频帧，正在重置麦克风');
     }
   }
+  async waitForCapture(timeoutMs = 1800) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!this.enabled) throw new Error('麦克风捕获未开启');
+      if (!this.capture.stale && this.capture.state === 'capturing' && this.capture.lastFrameAt) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(this.capture.error || '麦克风尚未收到新的音频帧');
+  }
   async startRecording() {
     if (!this.enabled) throw new Error('麦克风捕获未开启');
     if (this.capture.stale || this.capture.state !== 'capturing') {
-      throw new Error(this.capture.error || '麦克风尚未收到新的音频帧');
+      await this.waitForCapture();
     }
     if (this.recording) return;
     this.inputTarget = await this.captureInputTarget();
@@ -342,6 +351,7 @@ class VoiceService {
         catch (error) { this.showOverlay('error', String(error.message || error), 3000); throw error; }
       }
       if (req.method === 'POST' && route === '/v1/voice/record/stop') return json(res, 200, await this.stopRecording());
+      if (req.method === 'POST' && route === '/v1/voice/record/cancel') { this.abortRecording(); return json(res, 200, { ok: true }); }
       if (req.method === 'POST' && route === '/v1/voice/ptt/toggle-editor') return json(res, 200, this.toggleEditor());
       if (req.method === 'POST' && route === '/v1/voice/editor/open') return json(res, 200, this.showEditor());
       if (req.method === 'POST' && route === '/v1/voice/editor/close') { this.hideEditor(); return json(res, 200, this.editor); }
