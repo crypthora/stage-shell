@@ -6,9 +6,27 @@
   "main": "src/main.cjs",
   "scripts": {
     "start": "electron .",
-    "dev": "electron ."
+    "dev": "electron .",
+    "build:ui": "npm --prefix ui run build",
+    "dist:portable": "npm run build:ui && electron-builder --win portable --x64"
   },
   "devDependencies": {
-    "electron": "^39.2.7"
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.crypthora.stage-shell",
+    "productName": "stage-shell",
+    "directories": { "output": "portable-release" },
+    "files": [
+      "src/**",
+      "native/**",
+      "ui/dist/**",
+      "bin/**",
+      "package.json"
+    ],
+    "asarUnpack": ["bin/**", "native/**"],
+    "win": { "signAndEditExecutable": false },
+    "portable": { "artifactName": "stage-shell-${version}-portable.exe" }
   }
 }

@@ -29,6 +29,17 @@ npm install
 npm start
 ```
 
+## Portable Windows package
+
+From the repository root, run:
+
+```powershell
+.\scripts\build-portable.ps1
+```
+
+The generated portable executable is in `electron\portable-release`. It bundles
+Electron, the Zig core and native PowerShell helpers; Python is not required.
+
 Voice endpoint/API-key settings are entered locally through the app settings and are never committed.
 
 ## Architecture

@@ -7,6 +7,9 @@ data/
 electron/node_modules/
 electron/ui/dist/
 electron/ui/node_modules/
+electron/bin/
+electron/release/
+electron/portable-release/
 zig-core/.zig-cache/
 zig-core/zig-out/
 

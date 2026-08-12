@@ -8,12 +8,16 @@ const { ShellService } = require('./shell-service.cjs');
 
 const APP_NAME = 'stage-shell';
 const APP_ID = 'com.crypthora.stage-shell';
-const STAGE_ROOT = path.resolve(__dirname, '..', '..');
 const UI_ROOT = path.join(__dirname, '..', 'ui', 'dist');
-const APPBAR = path.join(__dirname, '..', 'native', 'appbar.ps1');
-const APPBAR_HOST = path.join(__dirname, '..', 'native', 'appbar-host.ps1');
-const POSITION_WINDOW = path.join(__dirname, '..', 'native', 'position-window.ps1');
-const NATIVE_CORE = path.join(STAGE_ROOT, 'zig-core', 'zig-out', 'bin', 'stage-shell-core.exe');
+const NATIVE_ROOT = app.isPackaged
+  ? path.join(process.resourcesPath, 'app.asar.unpacked', 'native')
+  : path.join(__dirname, '..', 'native');
+const APPBAR = path.join(NATIVE_ROOT, 'appbar.ps1');
+const APPBAR_HOST = path.join(NATIVE_ROOT, 'appbar-host.ps1');
+const POSITION_WINDOW = path.join(NATIVE_ROOT, 'position-window.ps1');
+const NATIVE_CORE = app.isPackaged
+  ? path.join(process.resourcesPath, 'app.asar.unpacked', 'bin', 'stage-shell-core.exe')
+  : path.join(__dirname, '..', 'bin', 'stage-shell-core.exe');
 const NATIVE_CORE_URL = 'http://127.0.0.1:7803';
 app.setName(APP_NAME);
 app.setAppUserModelId(APP_ID);
