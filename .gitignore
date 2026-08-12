@@ -1,19 +1,12 @@
 # Runtime state and user content
-backend/config.json
-backend/*.log
-backend/voice_audio/
-backend/dist/
-backend/build/
-backend/venv/
-backend/__pycache__/
+data/
 **/__pycache__/
 *.pyc
-backend/**/*.pyc
-backend/ui/dist/
-backend/ui/node_modules/
 
 # Local dependency/build outputs
 electron/node_modules/
+electron/ui/dist/
+electron/ui/node_modules/
 zig-core/.zig-cache/
 zig-core/zig-out/
 

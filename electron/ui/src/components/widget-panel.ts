@@ -34,7 +34,7 @@ function getWidgetState(id: string, appState: State): unknown {
   return fn ? fn(appState) : (appState?.widgets?.[id] ?? {});
 }
 
-// 默认排布（Python 未推送时的占位）
+// 默认排布（本地服务首帧未到达时的占位）
 const DEFAULT_ORDER: WidgetCfg[] = [
   { id: 'clock', enabled: true },
   { id: 'media', enabled: true },

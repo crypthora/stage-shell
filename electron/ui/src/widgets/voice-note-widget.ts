@@ -10,7 +10,7 @@ type VoiceNoteState = { line?: number; startLine?: number; headings?: string[]; 
 const DEFAULT_PREVIEW_HEIGHT = 176;
 const MIN_PREVIEW_HEIGHT = 56;
 const MAX_PREVIEW_HEIGHT = 420;
-const HEIGHT_KEY = 'outputs.voice-note.preview-height';
+const HEIGHT_KEY = 'stage-shell.voice-note.preview-height';
 
 class TaskBox extends WidgetType {
   constructor(private readonly line: number, private readonly checked: boolean, private readonly toggle: (line: number) => void) { super(); }

@@ -4,12 +4,12 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { VoiceService } = require('./voice-service.cjs');
+const { ShellService } = require('./shell-service.cjs');
 
 const APP_NAME = 'stage-shell';
 const APP_ID = 'com.crypthora.stage-shell';
 const STAGE_ROOT = path.resolve(__dirname, '..', '..');
-const BACKEND_ROOT = path.join(STAGE_ROOT, 'backend');
-const BACKEND = path.join(__dirname, '..', 'backend.py');
+const UI_ROOT = path.join(__dirname, '..', 'ui', 'dist');
 const APPBAR = path.join(__dirname, '..', 'native', 'appbar.ps1');
 const APPBAR_HOST = path.join(__dirname, '..', 'native', 'appbar-host.ps1');
 const POSITION_WINDOW = path.join(__dirname, '..', 'native', 'position-window.ps1');
@@ -18,12 +18,11 @@ const NATIVE_CORE_URL = 'http://127.0.0.1:7803';
 app.setName(APP_NAME);
 app.setAppUserModelId(APP_ID);
 app.setPath('userData', path.join(app.getPath('appData'), APP_NAME));
-let backend;
+let shellService;
 let sidebar;
 let settingsWindow;
 let tray;
-let backendUrl;
-let readyFile;
+const shellUrl = 'http://127.0.0.1:7799';
 let appBarHandleFile;
 let appBarHost;
 let appBarReadyFile;
@@ -42,8 +41,6 @@ let hotkeyHelper;
 let nativeCoreProcess;
 let hotkeyRestarting = false;
 let initialHotkeyRecovery;
-let restartingBackend = false;
-let backendFailures = 0;
 const VOICE_OVERLAY_SIZE = Object.freeze({ width: 440, height: 86 });
 
 function voiceEditorBoundsPath() { return path.join(app.getPath('userData'), 'voice-editor-window.json'); }
@@ -70,68 +67,31 @@ function voiceCommand(pathname) {
     .catch((error) => console.error(`Voice command ${pathname} failed:`, error));
 }
 
-function pythonCommand() { return process.env.STAGE_SHELL_PYTHON || 'python'; }
-
 function startHotkeyHelper() {
   if (hotkeyHelper && hotkeyHelper.exitCode === null && !hotkeyHelper.killed) return;
-  const script = path.join(__dirname, '..', 'native', 'caps-hotkey.py');
-  const python = pythonCommand();
-  const helper = spawn(python, [script], {
-    windowsHide: true, stdio: 'ignore',
-  });
+  const script = path.join(__dirname, '..', 'native', 'hotkey.ps1');
+  const helper = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Api', 'http://127.0.0.1:7798'], { windowsHide: true, stdio: 'ignore' });
   hotkeyHelper = helper;
-  helper.once('error', (error) => console.error('CapsLock hook launch failed:', error));
-  helper.once('exit', (code, signal) => {
-    // Do not let an old helper's delayed exit erase the reference to its
-    // replacement. That race created two competing low-level hooks.
+  helper.once('exit', (code) => {
     if (hotkeyHelper === helper) hotkeyHelper = undefined;
-    // A helper crash removes only its Windows hook. Restart it separately;
-    // never relaunch/kill Electron or the active microphone capture.
-    if (!app.isQuitting && !hotkeyRestarting) {
-      console.error(`CapsLock hook exited (${code ?? signal ?? 'unknown'}); retrying.`);
-      setTimeout(() => {
-        if (!hotkeyHelper) startHotkeyHelper();
-      }, 1200);
-    }
+    if (!app.isQuitting && !hotkeyRestarting) setTimeout(startHotkeyHelper, 1000);
+    console.error(`Native CapsLock hook exited (${code}).`);
   });
 }
 
-function restartHotkeyHelper(reason = '手动重新挂钩') {
+function restartHotkeyHelper() {
   if (hotkeyRestarting || app.isQuitting) return;
   hotkeyRestarting = true;
-  const previous = hotkeyHelper;
+  try { if (hotkeyHelper?.pid) spawnSync('taskkill.exe', ['/PID', String(hotkeyHelper.pid), '/T', '/F'], { windowsHide: true }); } catch {}
   hotkeyHelper = undefined;
-  try {
-    if (previous?.pid && previous.exitCode === null) {
-      spawnSync('taskkill.exe', ['/PID', String(previous.pid), '/T', '/F'], { windowsHide: true });
-    }
-  } catch (error) {
-    console.error('CapsLock hook stop failed:', error);
-  }
-  forceCapsOff();
-  setTimeout(() => {
-    hotkeyRestarting = false;
-    startHotkeyHelper();
-    console.log(`CapsLock hook restarted: ${reason}`);
-  }, 250);
+  setTimeout(() => { hotkeyRestarting = false; startHotkeyHelper(); }, 200);
 }
 
 function scheduleInitialHotkeyRecovery() {
-  // Pynput can successfully install its low-level hook while Electron is still
-  // bringing up hidden renderers.  On a few Windows starts that first hook
-  // receives no usable CapsLock callback, whereas re-installing it after the
-  // desktop is fully ready works.  Do that automatically once per launch.
   clearTimeout(initialHotkeyRecovery);
-  initialHotkeyRecovery = setTimeout(() => {
-    restartHotkeyHelper('启动后自动校准');
-  }, 1800);
+  initialHotkeyRecovery = setTimeout(restartHotkeyHelper, 1200);
 }
-
-function forceCapsOff() {
-  const script = path.join(__dirname, '..', 'native', 'caps-hotkey.py');
-  const python = pythonCommand();
-  try { spawnSync(python, [script, '--force-off'], { windowsHide: true, stdio: 'ignore' }); } catch {}
-}
+function forceCapsOff() {}
 
 async function startVoiceCore() {
   voiceService = new VoiceService(app.getPath('userData'));
@@ -192,15 +152,15 @@ async function startNativeCore() {
 
 async function resetVoiceCapture(reason = '语音核心重置') {
   if (!voiceService || !voiceCapture || voiceCapture.isDestroyed()) return;
-  // The capturer owns getUserMedia. Restarting only Python/Dock cannot repair
+  // The capturer owns getUserMedia. Restarting only the Dock cannot repair
   // a renderer that stopped delivering audio frames, so rebuild this page too.
   voiceService.resetCapture(reason, voiceService.enabled);
   await voiceCapture.webContents.reloadIgnoringCache();
 }
 
 async function reloadVoiceEditor() {
-  // The editor is intentionally kept alive when users hide it, so a backend
-  // and Dock restart otherwise leaves it running an older bundled UI.  Reload
+  // The editor is intentionally kept alive when users hide it, so a Dock
+  // restart otherwise leaves it running an older bundled UI.  Reload
   // from disk without cache; the document itself is saved through the local
   // API and is restored by the renderer during boot.
   if (!voiceEditor || voiceEditor.isDestroyed()) return;
@@ -254,7 +214,7 @@ function createVoiceEditor() {
       voiceEditor.hide();
     }
   });
-  voiceEditor.loadFile(path.join(BACKEND_ROOT, 'ui', 'dist', 'voice-editor.html')).catch(console.error);
+  voiceEditor.loadFile(path.join(UI_ROOT, 'voice-editor.html')).catch(console.error);
   voiceEditor.webContents.once('did-finish-load', () => syncWindowDevTools(voiceEditor));
   setInterval(() => {
     if (!voiceEditor || voiceEditor.isDestroyed()) return;
@@ -381,7 +341,7 @@ function getJson(url) {
 function postCommand(command, args = []) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ command, args });
-    const url = new URL(`${backendUrl}/api/command`);
+    const url = new URL(`${shellUrl}/api/command`);
     const request = http.request({
       hostname: url.hostname, port: url.port, path: url.pathname,
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
@@ -477,7 +437,7 @@ function positionSidebarInReservedCoordinates(config) {
 async function recoverDock() {
   if (!sidebar || sidebar.isDestroyed()) return;
   try {
-    const config = await getJson(`${backendUrl}/api/config`);
+    const config = await getJson(`${shellUrl}/api/config`);
     // After a monitor power-cycle a retained AppBar HWND can keep its shell
     // reservation while Chromium's DWM surface is gone.  Showing/reloading
     // that HWND is not reliable; rebuild the tiny host window instead.
@@ -506,94 +466,11 @@ function scheduleDockRecovery() {
 
 async function refreshHostConfig() {
   try {
-    await applyDockConfig(await getJson(`${backendUrl}/api/config`));
+    await applyDockConfig(await getJson(`${shellUrl}/api/config`));
     // Keep auxiliary Electron windows on the same wallpaper-derived accent
     // colour as the Dock, even when the wallpaper is changed at runtime.
-    try { voiceService?.setTheme((await getJson(`${backendUrl}/api/state`)).wallpaper?.seed); } catch {}
-    backendFailures = 0;
-  } catch {
-    if (++backendFailures >= 3) void restartBackend('健康检查连续失败');
-    return;
-  }
-  try {
-    const actions = await getJson(`${backendUrl}/api/host-actions`);
-    if (actions.includes('recoverDock')) void recoverDock();
-    if (actions.includes('recoverHotkey')) restartHotkeyHelper('设置');
-    if (actions.includes('restart')) { app.relaunch(); app.exit(0); }
-  } catch {}
-}
-
-async function waitForBackend() {
-  // Python can legitimately need more than 15 seconds after a cold restart
-  // (imports, desktop enumeration and media initialization).  Do not give up
-  // before its ready file and local health endpoint agree.
-  const deadline = Date.now() + 45000;
-  while (Date.now() < deadline) {
-    try {
-      if (!readyFile || !fs.existsSync(readyFile)) throw new Error('not ready');
-      const { port } = JSON.parse(fs.readFileSync(readyFile, 'utf8'));
-      backendUrl = `http://127.0.0.1:${Number(port)}`;
-      if (await probe(`${backendUrl}/api/state`)) return;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  throw new Error('Python sidecar did not become ready within 45 seconds.');
-}
-
-function startBackend() {
-  const python = pythonCommand();
-  readyFile = path.join(app.getPath('userData'), 'backend-ready.json');
-  try { fs.unlinkSync(readyFile); } catch {}
-  const child = spawn(python, [BACKEND, BACKEND_ROOT], {
-    cwd: BACKEND_ROOT,
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, STAGE_SHELL_READY_FILE: readyFile, STAGE_SHELL_APP_NAME: APP_NAME },
-  });
-  backend = child;
-  child.stdout.on('data', (data) => console.log(`[backend] ${data}`));
-  child.stderr.on('data', (data) => console.error(`[backend] ${data}`));
-  child.once('exit', (code) => {
-    if (backend === child) backend = undefined;
-    if (!app.isQuitting) {
-      console.error(`${APP_NAME} backend exited (${code}).`);
-      setTimeout(() => void restartBackend(`后端退出 (${code})`), 1200);
-    }
-  });
-}
-
-async function restartBackend(reason = '手动重启') {
-  if (restartingBackend || app.isQuitting) return;
-  restartingBackend = true;
-  try {
-    const previous = backend;
-    backend = undefined;
-    if (previous && !previous.killed) {
-      // The project Python launcher can own an inner uv Python process. Kill
-      // only this known child tree so a stale server cannot retain port 7799.
-      previous.intentionalStop = true;
-      spawnSync('taskkill.exe', ['/PID', String(previous.pid), '/T', '/F'], { windowsHide: true });
-    }
-    backendUrl = undefined;
-    startBackend();
-    await waitForBackend();
-    await resetVoiceCapture('后端重启后重新初始化麦克风');
-    await reloadVoiceEditor();
-    try { voiceService?.setTheme((await getJson(`${backendUrl}/api/state`)).wallpaper?.seed); } catch {}
-    // Use exactly the same recreate-and-position sequence as clicking the
-    // tray icon. Re-reserving an existing HWND can leave Electron's DIP
-    // bounds stale and shift the Dock after a backend restart.
-    await recoverDock();
-    if (settingsWindow && !settingsWindow.isDestroyed()) {
-      settingsWindow.loadURL(`${backendUrl}/settings`).catch((error) => console.error('Settings reload failed:', error));
-    }
-    backendFailures = 0;
-    console.log(`${APP_NAME} backend restarted: ${reason}`);
-  } catch (error) {
-    console.error(`${APP_NAME} backend restart failed (${reason}):`, error);
-  } finally {
-    restartingBackend = false;
-  }
+    try { voiceService?.setTheme((await getJson(`${shellUrl}/api/state`)).wallpaper?.seed); } catch {}
+  } catch (error) { console.error('Shell service refresh failed:', error); }
 }
 
 async function createSidebar(initialConfig) {
@@ -620,13 +497,12 @@ async function createSidebar(initialConfig) {
     try { fs.writeFileSync(path.join(app.getPath('userData'), 'sidebar-renderer-error.txt'), JSON.stringify(details)); } catch {}
   });
   const sidebarHwnd = hwndOf(sidebar);
-  // The backend uses this only to filter its own Dock window during Win32
-  // enumeration.  It travels through the same localhost Web API as all UI
-  // communication; no Electron IPC or renderer bridge is involved.
+  // This notification uses the same localhost Web API as all UI communication;
+  // no Electron IPC or renderer bridge is involved.
   void postCommand('setOwnWindow', [sidebarHwnd]).catch(() => {});
   await applyDockConfig(initialConfig, true);
   positionSidebarInReservedCoordinates(initialConfig);
-  sidebar.loadURL(`${backendUrl}/`).catch((error) => console.error('Dock load failed:', error));
+  sidebar.loadURL(`${shellUrl}/`).catch((error) => console.error('Dock load failed:', error));
   sidebar.webContents.once('did-finish-load', () => syncWindowDevTools(sidebar));
   // A monitor sleep/reconnect can prevent Electron from emitting
   // ready-to-show for a recreated offscreen window. Show the native surface
@@ -660,7 +536,7 @@ function openSettings() {
     backgroundColor: '#1b1b1b',
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
-  settingsWindow.loadURL(`${backendUrl}/settings`);
+  settingsWindow.loadURL(`${shellUrl}/settings`);
   settingsWindow.webContents.once('did-finish-load', () => syncWindowDevTools(settingsWindow));
   settingsWindow.once('ready-to-show', () => settingsWindow.show());
   settingsWindow.once('closed', () => { settingsWindow = undefined; });
@@ -675,7 +551,7 @@ async function createTray() {
   tray.setToolTip(APP_NAME);
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: '打开设置', click: openSettings },
-    { label: '重启后端与侧边栏', click: () => void restartBackend() },
+    { label: '重启侧边栏', click: () => void recoverDock() },
     { label: `完整重启 ${APP_NAME}`, click: () => { app.relaunch(); app.quit(); } },
     { label: '重新挂钩 CapsLock', click: () => restartHotkeyHelper() },
     { label: '恢复 Dock', click: () => void recoverDock() },
@@ -694,9 +570,16 @@ app.whenReady().then(async () => {
     await startVoiceCore();
     forceCapsOff();
     startHotkeyHelper();
-    startBackend();
-    await waitForBackend();
-    try { voiceService.setTheme((await getJson(`${backendUrl}/api/state`)).wallpaper?.seed); } catch {}
+    shellService = new ShellService({
+      userData: app.getPath('userData'), uiRoot: UI_ROOT, voiceService,
+      onCommand: async (name) => {
+        if (name === 'recoverCapsHotkey') return restartHotkeyHelper();
+        if (name === 'restartDock') return recoverDock();
+        return false;
+      },
+    });
+    await shellService.start();
+    try { voiceService.setTheme((await getJson(`${shellUrl}/api/state`)).wallpaper?.seed); } catch {}
     createVoiceOverlay();
     createVoiceEditor();
     await syncHostTheme();
@@ -706,7 +589,7 @@ app.whenReady().then(async () => {
     // editor. Settings and recovery actions remain available from the tray.
     Menu.setApplicationMenu(null);
     await createTray();
-    const initialConfig = await getJson(`${backendUrl}/api/config`);
+    const initialConfig = await getJson(`${shellUrl}/api/config`);
     await createSidebar(initialConfig);
     scheduleInitialHotkeyRecovery();
     setInterval(() => void refreshHostConfig(), 1000);
@@ -737,6 +620,5 @@ app.on('before-quit', () => {
   try { voiceOverlay?.destroy(); } catch {}
   try { voiceEditor?.destroy(); } catch {}
   try { voiceService?.stop(); } catch {}
-  try { hotkeyHelper?.kill(); } catch {}
-  if (backend && !backend.killed) backend.kill();
+  try { shellService?.stop(); } catch {}
 });

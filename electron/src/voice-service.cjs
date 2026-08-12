@@ -274,8 +274,8 @@ class VoiceService {
         socket.send(JSON.stringify({
           mode: '2pass', is_speaking: true, wav_format: 'pcm',
           language: this.config.language || 'zh',
-          // funasr_server.py consumes this exact field and forwards it as
-          // model.transcribe(context=...).
+          // The compatible Qwen endpoint accepts the terminology context in
+          // this field and applies it during transcription.
           context: this.asrContext(),
         }));
         socket.send(pcm);

@@ -9,7 +9,7 @@ $source = @'
 using System;
 using System.Runtime.InteropServices;
 
-public static class OutputsAppBar {
+public static class StageShellAppBar {
   const int ABM_NEW = 0x0, ABM_REMOVE = 0x1, ABM_QUERYPOS = 0x2, ABM_SETPOS = 0x3;
   const int ABE_LEFT = 0, ABE_RIGHT = 2;
   const int MONITOR_DEFAULTTONEAREST = 2;
@@ -50,7 +50,7 @@ public static class OutputsAppBar {
 
 Add-Type -TypeDefinition $source
 if ($Action -eq 'reserve') {
-  [OutputsAppBar]::Reserve($Hwnd, $Width, $Side -eq 'right') | ConvertTo-Json -Compress
+  [StageShellAppBar]::Reserve($Hwnd, $Width, $Side -eq 'right') | ConvertTo-Json -Compress
 } else {
-  [OutputsAppBar]::Remove($Hwnd)
+  [StageShellAppBar]::Remove($Hwnd)
 }

@@ -13,7 +13,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-public sealed class OutputsAppBarHost : Form {
+public sealed class StageShellAppBarHost : Form {
   const int ABM_NEW = 0x0, ABM_REMOVE = 0x1, ABM_QUERYPOS = 0x2, ABM_SETPOS = 0x3;
   const int ABE_LEFT = 0, ABE_RIGHT = 2, MONITOR_DEFAULTTONEAREST = 2;
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int left, top, right, bottom; }
@@ -25,7 +25,7 @@ public sealed class OutputsAppBarHost : Form {
   [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
   readonly int width; readonly bool right; readonly string readyFile; bool registered;
-  public OutputsAppBarHost(int width, bool right, string readyFile) {
+  public StageShellAppBarHost(int width, bool right, string readyFile) {
     this.width = Math.Max(1, width); this.right = right; this.readyFile = readyFile;
     ShowInTaskbar = false; FormBorderStyle = FormBorderStyle.None; Opacity = 0; Width = 1; Height = 1;
   }
@@ -52,5 +52,5 @@ public sealed class OutputsAppBarHost : Form {
 '@
 
 Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -TypeDefinition $source
-$form = [OutputsAppBarHost]::new($Width, $Side -eq 'right', $ReadyFile)
+$form = [StageShellAppBarHost]::new($Width, $Side -eq 'right', $ReadyFile)
 [System.Windows.Forms.Application]::Run($form)

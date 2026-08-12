@@ -11,7 +11,7 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
-namespace OutputsHotkey {
+namespace StageShellHotkey {
   public static class Program {
     const int WH_KEYBOARD_LL = 13, WM_KEYDOWN = 0x0100, WM_KEYUP = 0x0101;
     const int WM_SYSKEYDOWN = 0x0104, WM_SYSKEYUP = 0x0105;
@@ -19,6 +19,7 @@ namespace OutputsHotkey {
     static IntPtr hook = IntPtr.Zero;
     static HookProc callback = Hook;
     static volatile bool held;
+    static long pressedAt;
     static int holdEpoch;
     static volatile bool editing;
     static string api = "";
@@ -47,7 +48,9 @@ namespace OutputsHotkey {
       // ends the utterance.
       await Task.Delay(35);
       if (epoch == holdEpoch && held && (GetAsyncKeyState(VK_CAPITAL) & 0x8000) == 0) {
-        held = false; Notify("/v1/voice/record/stop");
+        held = false;
+        if (Environment.TickCount64 - pressedAt < 350) Notify("/v1/voice/ptt/toggle-editor");
+        else Notify("/v1/voice/record/stop");
       }
     }
     static IntPtr Hook(int code, IntPtr wParam, IntPtr lParam) {
@@ -57,7 +60,7 @@ namespace OutputsHotkey {
         if (data.vkCode == VK_RETURN && msg == WM_KEYDOWN && editing) { Notify("/v1/voice/commit"); return (IntPtr)1; }
         if (data.vkCode == VK_CAPITAL) {
           if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) {
-            if (!held) { held = true; System.Threading.Interlocked.Increment(ref holdEpoch); Notify("/v1/voice/record/start"); }
+            if (!held) { held = true; pressedAt = Environment.TickCount64; System.Threading.Interlocked.Increment(ref holdEpoch); Notify("/v1/voice/record/start"); }
             return (IntPtr)1;
           }
           if ((msg == WM_KEYUP || msg == WM_SYSKEYUP) && held) {
@@ -79,4 +82,4 @@ namespace OutputsHotkey {
 }
 '@
 
-[OutputsHotkey.Program]::Run($Api)
+[StageShellHotkey.Program]::Run($Api)

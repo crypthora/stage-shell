@@ -1,4 +1,4 @@
-// state.ts —— Python 引擎每帧推送的 State Model 类型契约（与 engine.build_state() 对齐）。
+// state.ts —— 本地 Shell 服务推送的 State Model 类型契约。
 import type { RoleConfig } from './roles';
 
 export type { RoleConfig };

@@ -1,7 +1,7 @@
 .{
-    .name = .outputs_core,
+    .name = .stage_shell_core,
     .version = "0.1.0",
-    .fingerprint = 0x20cc3b7a3af115dc,
+    .fingerprint = 0xeb42bd3bd51ad6e,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},
     .paths = .{ "build.zig", "build.zig.zon", "src" },
