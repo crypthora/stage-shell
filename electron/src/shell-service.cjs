@@ -33,19 +33,46 @@ function requestBody(req) {
 }
 
 class ShellService {
-  constructor({ userData, uiRoot, voiceService, onCommand }) {
+  constructor({ userData, uiRoot, voiceService, onCommand, windows }) {
     this.userData = userData;
     this.uiRoot = uiRoot;
     this.voiceService = voiceService;
     this.onCommand = onCommand;
+    this.windows = windows;
     this.configFile = path.join(userData, 'shell-config.json');
     this.config = { ...DEFAULT_CONFIG };
     try { Object.assign(this.config, JSON.parse(fs.readFileSync(this.configFile, 'utf8'))); } catch {}
     this.server = http.createServer((req, res) => void this.route(req, res));
     this.port = 0;
+    this.cards = [];
+    this.windowPoll = undefined;
+    this.refreshingWindows = false;
   }
-  start() { return new Promise((resolve, reject) => this.server.listen(7799, '127.0.0.1', (error) => error ? reject(error) : (this.port = 7799, resolve()))); }
-  stop() { this.server.close(); }
+  start() {
+    return new Promise((resolve, reject) => {
+      const fail = (error) => { this.server.off('error', fail); reject(error); };
+      this.server.once('error', fail);
+      this.server.listen(7799, '127.0.0.1', () => {
+        this.server.off('error', fail);
+        this.port = 7799;
+        void this.refreshWindows();
+        // Native enumeration starts a PowerShell process. Keep it off the request path
+        // and deliberately infrequent so a busy desktop never harms UI responsiveness.
+        this.windowPoll = setInterval(() => void this.refreshWindows(), 2500);
+        resolve();
+      });
+    });
+  }
+  stop() { clearInterval(this.windowPoll); this.server.close(); }
+  async refreshWindows() {
+    if (this.refreshingWindows) return;
+    this.refreshingWindows = true;
+    try {
+      const cards = await this.windows.list();
+      if (Array.isArray(cards)) this.cards = cards;
+    } catch (error) { console.error('Native window refresh failed:', error); }
+    finally { this.refreshingWindows = false; }
+  }
   saveConfig(update) {
     if (!update || typeof update !== 'object' || Array.isArray(update)) throw new Error('settings must be an object');
     this.config = { ...this.config, ...update };
@@ -60,7 +87,7 @@ class ShellService {
     return {
       clock: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       media: { active: false, title: '', artist: '', isPlaying: false, cover: null },
-      cards: [], staged: [], desktops: { active: 0, cols: 2, items: [] },
+      cards: this.cards, staged: [], desktops: { active: 0, cols: 2, items: [] },
       voice: { visible: !!voice.recording, mode: voice.recording ? 'listening' : 'idle', text: voice.overlay?.text || '' },
       wallpaper: {
         url: this.config.WALLPAPER_ENABLED && this.config.WALLPAPER_PATH && fs.existsSync(this.config.WALLPAPER_PATH)
@@ -98,6 +125,8 @@ class ShellService {
       return false;
     }
     if (name === 'setHostTheme') return true;
+    if (name === 'focusCard') return this.windows.focus(Number(args[0]));
+    if (name === 'closeWindow') return this.windows.close(Number(args[0]));
     if (name === 'restartDock' || name === 'recoverCapsHotkey' || name === 'setOwnWindow') return this.onCommand(name, args);
     if (name === 'getConfig') return this.config;
     if (name === 'saveConfig') return this.saveConfig(args[0] || {});

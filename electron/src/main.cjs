@@ -15,6 +15,7 @@ const NATIVE_ROOT = app.isPackaged
 const APPBAR = path.join(NATIVE_ROOT, 'appbar.ps1');
 const APPBAR_HOST = path.join(NATIVE_ROOT, 'appbar-host.ps1');
 const POSITION_WINDOW = path.join(NATIVE_ROOT, 'position-window.ps1');
+const WINDOWS = path.join(NATIVE_ROOT, 'windows.ps1');
 const NATIVE_CORE = app.isPackaged
   ? path.join(process.resourcesPath, 'app.asar.unpacked', 'bin', 'stage-shell-core.exe')
   : path.join(__dirname, '..', 'bin', 'stage-shell-core.exe');
@@ -362,6 +363,35 @@ function postCommand(command, args = []) {
   });
 }
 
+function windowsCommand(action, hwnd = 0) {
+  return new Promise((resolve, reject) => {
+    const args = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', WINDOWS, '-Action', action, '-Hwnd', String(hwnd), '-Exclude', String(sidebar && !sidebar.isDestroyed() ? hwndOf(sidebar) : 0)];
+    const child = spawn('powershell.exe', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', (part) => { stdout += part; });
+    child.stderr.on('data', (part) => { stderr += part; });
+    const timeout = setTimeout(() => { try { child.kill(); } catch {}; reject(new Error(`native window ${action} timed out`)); }, 2500);
+    child.once('error', (error) => { clearTimeout(timeout); reject(error); });
+    child.once('exit', (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) return reject(new Error(stderr || `native window ${action} failed`));
+      try { resolve(stdout.trim() ? JSON.parse(stdout.trim()) : null); } catch (error) { reject(error); }
+    });
+  });
+}
+
+const windowsApi = {
+  list: async () => {
+    try {
+      const value = await windowsCommand('list');
+      const rows = Array.isArray(value) ? value : value ? [value] : [];
+      return rows.slice(0, 20).map((row) => ({ hwnd: Number(row.hwnd), title: String(row.title || row.process || '窗口'), thumb: null, icon: null, group: false, groupCount: 0, visible: true }));
+    } catch (error) { console.error('Native window list failed:', error); return []; }
+  },
+  focus: async (hwnd) => windowsCommand('focus', hwnd),
+  close: async (hwnd) => windowsCommand('close', hwnd),
+};
+
 function syncHostTheme() {
   return postCommand('setHostTheme', [nativeTheme.shouldUseDarkColors ? 'dark' : 'light'])
     .catch((error) => console.error('Host theme sync failed:', error));
@@ -576,6 +606,7 @@ app.whenReady().then(async () => {
     startHotkeyHelper();
     shellService = new ShellService({
       userData: app.getPath('userData'), uiRoot: UI_ROOT, voiceService,
+      windows: windowsApi,
       onCommand: async (name) => {
         if (name === 'recoverCapsHotkey') return restartHotkeyHelper();
         if (name === 'restartDock') return recoverDock();
