@@ -1,0 +1,18 @@
+# Core runtime dependencies for the Windows desktop app.
+# Use an activated project-local virtual environment, then run:
+#   pip install -r requirements.txt
+#
+# The heavyweight ML dependencies used by llm/server.py and funasr_server.py
+# self-bootstrap inside those scripts, so they are intentionally not pinned here.
+
+pywin32; platform_system == "Windows"
+Pillow
+psutil
+pystray
+pyvda; platform_system == "Windows"
+numpy
+sounddevice
+pynput; platform_system == "Windows"
+websocket-client
+websockets
+winsdk; platform_system == "Windows"

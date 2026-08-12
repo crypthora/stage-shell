@@ -1,0 +1,26 @@
+# Runtime state and user content
+backend/config.json
+backend/*.log
+backend/voice_audio/
+backend/dist/
+backend/build/
+backend/venv/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+backend/**/*.pyc
+backend/ui/dist/
+backend/ui/node_modules/
+
+# Local dependency/build outputs
+electron/node_modules/
+zig-core/.zig-cache/
+zig-core/zig-out/
+
+# Diagnostics and local editor files
+*.log
+*.png
+*.pdb
+desktop-diagnostic*
+.vscode/
+.idea/

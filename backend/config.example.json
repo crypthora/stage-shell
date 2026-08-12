@@ -1,0 +1,16 @@
+{
+  "BAR_W": 280,
+  "DOCK_SIDE": "right",
+  "RESERVE_SPACE": true,
+  "VOICE_ENABLED": true,
+  "VOICE_ADDR": "127.0.0.1",
+  "VOICE_PORT": "10095",
+  "VOICE_CONTEXT": "",
+  "VOICE_LANGUAGE": "zh",
+  "WALLPAPER_ENABLED": false,
+  "WALLPAPER_PATH": "",
+  "WIDGETS": [
+    { "id": "voice-note", "enabled": true }
+  ],
+  "WIDGETS_ENABLED": true
+}

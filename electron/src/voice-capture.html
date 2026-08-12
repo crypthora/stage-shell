@@ -1,0 +1,82 @@
+<!doctype html><meta charset="utf-8"><title>stage-shell voice capture</title>
+<script>
+// A deliberately small, single-stream capture owner. Recovery is requested by
+// the localhost core through a monotonically increasing generation; never run
+// overlapping getUserMedia / AudioContext lifecycles in this hidden renderer.
+const API = 'http://127.0.0.1:7798/v1/voice';
+let stream, ctx, source, processor, running = false, starting = false, generation = -1;
+
+async function report(status) {
+  try { await fetch(API + '/status', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(status) }); } catch {}
+}
+
+async function release(reason = '麦克风已释放') {
+  running = false;
+  const oldProcessor = processor, oldSource = source, oldContext = ctx, oldStream = stream;
+  processor = source = ctx = stream = undefined;
+  try { oldProcessor?.disconnect(); } catch {}
+  try { oldSource?.disconnect(); } catch {}
+  try { await oldContext?.close(); } catch {}
+  try { oldStream?.getTracks().forEach((track) => track.stop()); } catch {}
+  await report({ state: 'released', speech: false, level: 0, error: reason });
+}
+
+function resample(input, inputRate) {
+  const count = Math.floor(input.length * 16000 / inputRate), out = new Int16Array(count);
+  for (let i = 0; i < count; i++) {
+    const at = i * inputRate / 16000, a = Math.floor(at), b = Math.min(a + 1, input.length - 1), f = at - a;
+    out[i] = Math.max(-1, Math.min(1, input[a] * (1 - f) + input[b] * f)) * 32767;
+  }
+  return new Uint8Array(out.buffer);
+}
+
+async function start() {
+  if (running || starting) return;
+  starting = true;
+  try {
+    const nextStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    // A reset may have happened while permission was pending. Do not attach a
+    // now-obsolete stream; release it and let the next control tick retry.
+    if (running) { nextStream.getTracks().forEach((track) => track.stop()); return; }
+    const nextContext = new AudioContext();
+    // Hidden Electron renderers may create an AudioContext in `suspended`
+    // state. A stream then exists but ScriptProcessor never receives a frame.
+    // Resume explicitly before reporting capture as healthy.
+    await nextContext.resume();
+    if (nextContext.state !== 'running') throw new Error(`音频上下文未运行：${nextContext.state}`);
+    const nextSource = nextContext.createMediaStreamSource(nextStream);
+    const nextProcessor = nextContext.createScriptProcessor(2048, 1, 1);
+    nextProcessor.onaudioprocess = (event) => {
+      if (!running || nextContext !== ctx) return;
+      const pcm = resample(event.inputBuffer.getChannelData(0), nextContext.sampleRate);
+      void fetch(API + '/chunk', { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: pcm });
+    };
+    nextSource.connect(nextProcessor);
+    nextProcessor.connect(nextContext.destination);
+    stream = nextStream; ctx = nextContext; source = nextSource; processor = nextProcessor; running = true;
+    const track = nextStream.getAudioTracks()[0];
+    track?.addEventListener('ended', () => void report({ state: 'error', error: '麦克风轨道已结束' }));
+    await report({ state: 'capturing', device: track?.label || 'microphone', sampleRate: nextContext.sampleRate, error: '' });
+  } catch (error) {
+    await report({ state: 'error', error: String(error?.message || error) });
+  } finally { starting = false; }
+}
+
+// Mark the renderer alive before asking Windows for a device. Without this,
+// a stuck hidden renderer is indistinguishable from a microphone failure.
+void report({ state: 'initializing', error: '' });
+setInterval(async () => {
+  try {
+    const control = await fetch(API + '/control', { cache: 'no-store' }).then((response) => response.json());
+    if (!control.enabled) {
+      if (stream || running) await release();
+      return;
+    }
+    if (control.generation !== generation) {
+      generation = control.generation;
+      await release('正在重新初始化麦克风');
+    }
+    await start();
+  } catch {}
+}, 350);
+</script>

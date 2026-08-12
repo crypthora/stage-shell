@@ -1,0 +1,14 @@
+{
+  "name": "stage-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stage Shell desktop dock and voice-input host",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^39.2.7"
+  }
+}
